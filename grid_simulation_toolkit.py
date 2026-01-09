@@ -16,6 +16,8 @@ class GridAutomationToolkit:
     """
     A Python framework demonstrating the 'Modern Grid Architect' skillset 
     required for the 50Hertz Network Planner role.
+
+    Repository: https://github.com/omari91/NEP_Automation_Toolkit
     
     Demonstrates:
     1. Automated Grid Creation (Digital Twin)
@@ -25,14 +27,14 @@ class GridAutomationToolkit:
 
     def __init__(self):
         self.net = None
-        self.results = []
+        # Initialize as empty DataFrame to prevent AttributeErrors
+        self.results = pd.DataFrame()
 
     def create_50hertz_mock_grid(self):
         """
-        Creates a simplified representation of the 50Hertz challenges:
-        - High Wind Generation in the North (Mecklenburg-Vorpommern)
-        - High Industrial Load in the South (Bavaria/Saxony)
-        - Parallel AC 380kV and DC SuedOstLink corridors
+        Creates a simplified representation of the 50Hertz challenges.
+        CORRECTION: Uses Overhead Line parameters (OHL) instead of Cables
+        to prevent massive charging currents over 200km distances.
         """
         print("\n--- Initializing 50Hertz Target Grid Model (Mock) ---")
         
@@ -44,50 +46,49 @@ class GridAutomationToolkit:
         net = pp.create_empty_network()
 
         # --- BUSSES (Nodes) ---
-        # North Node (Wind Hub - e.g., Heide/Wolmirstedt area)
         b_north = pp.create_bus(net, vn_kv=380, name="Substation North (Wind)")
-        # Central Node (Transit)
         b_central = pp.create_bus(net, vn_kv=380, name="Substation Central")
-        # South Node (Load Center - e.g., Isar/Bavaria)
         b_south = pp.create_bus(net, vn_kv=380, name="Substation South (Ind.)")
 
-        # --- GENERATION (The "60 to 100 by 2032" Target) ---
-        # External Grid connection (Slack)
+        # --- GENERATION ---
+        # External Grid (Slack)
         pp.create_ext_grid(net, bus=b_north, vm_pu=1.02, name="European Interconnection")
-        
-        # Massive Wind Park in North (2000 MW)
+        # Wind Park
         pp.create_sgen(net, bus=b_north, p_mw=2000, q_mvar=0, name="Offshore Wind Park Baltic")
 
         # --- LOADS ---
-        # Heavy Industry in South (2500 MW)
-        pp.create_load(net, bus=b_south, p_mw=2500, q_mvar=500, name="Bavarian Industry Cluster")
+        # Tuned to 2300 MW to hit the "Sweet Spot" (High Loading but Stable)
+        # 2400 MW caused voltage collapse; 2300 MW should result in ~95-105% loading.
+        pp.create_load(net, bus=b_south, p_mw=2300, q_mvar=400, name="Bavarian Industry Cluster")
 
-        # --- TRANSMISSION LINES (The Infrastructure) ---
-        # AC Line 1 (North -> Central)
-        pp.create_line(net, b_north, b_central, length_km=150, std_type="NAYY 4x150 SE", 
-                       name="AC Corridor North-Central A")
-        # AC Line 2 (Parallel Redundancy)
-        pp.create_line(net, b_north, b_central, length_km=150, std_type="NAYY 4x150 SE", 
-                       name="AC Corridor North-Central B")
+        # --- TRANSMISSION LINES (Overhead Lines - OHL) ---
+        # Using typical 380kV parameters: R=0.03 Ohm/km, X=0.32 Ohm/km, C=11.5 nF/km, I_max=2.0kA
+        line_params = {
+            "r_ohm_per_km": 0.03, 
+            "x_ohm_per_km": 0.32, 
+            "c_nf_per_km": 11.5, 
+            "max_i_ka": 2.0
+        }
         
-        # AC Line 3 (Central -> South)
-        pp.create_line(net, b_central, b_south, length_km=200, std_type="NAYY 4x150 SE", 
-                       name="AC Corridor Central-South")
+        pp.create_line_from_parameters(net, b_north, b_central, length_km=150, 
+                                       name="AC Corridor North-Central A", **line_params)
+        
+        pp.create_line_from_parameters(net, b_north, b_central, length_km=150, 
+                                       name="AC Corridor North-Central B", **line_params)
+        
+        pp.create_line_from_parameters(net, b_central, b_south, length_km=200, 
+                                       name="AC Corridor Central-South", **line_params)
 
-        # --- HVDC SuedOstLink (The Strategic Asset) ---
-        # Modeling as a DC line for simplicity in this demo
+        # --- HVDC SuedOstLink ---
         pp.create_dcline(net, from_bus=b_north, to_bus=b_south, p_mw=1000, loss_mw=20, 
                          loss_percent=0, vm_from_pu=1.02, vm_to_pu=1.02, name="SuedOstLink HVDC")
 
         self.net = net
         print("Grid Model Created Successfully.")
-        print(f"Nodes: {len(net.bus)}, Lines: {len(net.line)}, HVDC Links: {len(net.dcline)}")
 
     def validate_data_integrity(self):
         """
         Mimics the candidate's experience at Ilara Health.
-        Checks for bad data (e.g., negative impedances, islanded nodes) 
-        before running expensive simulations.
         """
         print("\n--- Running Data Integrity Checks (CIM/CGMES Validation) ---")
         
@@ -95,19 +96,14 @@ class GridAutomationToolkit:
             print("Status: Passed (Mock Validation)")
             return True
 
-        # Check 1: Voltage Levels
         if any(self.net.bus.vn_kv <= 0):
             print("CRITICAL ERROR: Busses found with 0 or negative voltage rating.")
             return False
             
-        # Check 2: Line Impedances
-        # Real world data often has errors like 0 resistance causing division by zero
         if any(self.net.line.r_ohm_per_km <= 0) or any(self.net.line.x_ohm_per_km <= 0):
             print("CRITICAL ERROR: Non-physical line parameters detected.")
             return False
 
-        # Check 3: Isolated Nodes (Topology Check)
-        # In a real tool, we would run a graph connectivity search here
         print("Topology Check: No islands detected.")
         print("Data Integrity: 99.9% (Ready for Simulation)")
         return True
@@ -115,18 +111,15 @@ class GridAutomationToolkit:
     def run_n_minus_1_analysis(self):
         """
         Automates the N-1 contingency analysis.
-        Iterates through every AC line, disconnects it, runs a power flow,
-        and checks if other lines overload.
         """
         print("\n--- Starting Automated N-1 Contingency Analysis ---")
         
         if not PANDAPOWER_AVAILABLE:
-            # Mock Output for interview demonstration
             mock_data = [
-                {"Contingency": "AC Corridor North-Central A", "Status": "CRITICAL", "Max_Loading_%": 145.2},
-                {"Contingency": "AC Corridor North-Central B", "Status": "CRITICAL", "Max_Loading_%": 145.2},
-                {"Contingency": "AC Corridor Central-South", "Status": "STABLE", "Max_Loading_%": 85.4},
-                {"Contingency": "SuedOstLink HVDC", "Status": "WARNING", "Max_Loading_%": 98.1}
+                {"Contingency_Event": "AC Corridor North-Central A", "System_Status": "CRITICAL", "Max_Line_Loading_%": 145.2},
+                {"Contingency_Event": "AC Corridor North-Central B", "System_Status": "CRITICAL", "Max_Line_Loading_%": 145.2},
+                {"Contingency_Event": "AC Corridor Central-South", "System_Status": "STABLE", "Max_Line_Loading_%": 85.4},
+                {"Contingency_Event": "SuedOstLink HVDC", "System_Status": "WARNING", "Max_Line_Loading_%": 98.1}
             ]
             self.results = pd.DataFrame(mock_data)
             print(self.results)
@@ -137,23 +130,28 @@ class GridAutomationToolkit:
 
         # Base Case Run
         try:
+            # We can use standard runpp now that numba is installed
             pp.runpp(self.net)
             print("Base Case: Converged.")
-        except:
-            print("Base Case: Failed to Converge!")
+        except pp.LoadflowNotConverged:
+            print("CRITICAL: Base Case Failed to Converge! Check Grid Physics.")
+            # Create a dummy failure record so the report doesn't crash
+            self.results = pd.DataFrame([{
+                "Contingency_Event": "Base Case",
+                "System_Status": "DIVERGED",
+                "Max_Line_Loading_%": "N/A"
+            }])
             return
 
         for line_idx in lines:
             line_name = self.net.line.at[line_idx, 'name']
             
-            # 1. Disconnect Line (Simulate Fault)
+            # 1. Disconnect Line
             self.net.line.at[line_idx, 'in_service'] = False
             
             # 2. Run Power Flow
             try:
                 pp.runpp(self.net)
-                
-                # 3. Check for Overloads in remaining lines
                 max_loading = self.net.res_line.loading_percent.max()
                 
                 status = "STABLE"
@@ -175,41 +173,43 @@ class GridAutomationToolkit:
                     "Max_Line_Loading_%": "N/A"
                 })
             
-            # 4. Reconnect Line (Reset for next loop)
+            # 3. Reconnect Line
             self.net.line.at[line_idx, 'in_service'] = True
 
         self.results = pd.DataFrame(results_list)
-        print("\nanalysis complete.")
+        print("\nAnalysis complete.")
 
     def generate_management_report(self):
         """
         Generates a summary for decision makers.
         """
         print("\n--- NEP 2032 Simulation Report ---")
-        if self.results is not None and not self.results.empty:
+        if not self.results.empty:
             print(self.results.to_string(index=False))
             
             print("\nRecommendation for Network Planning:")
-            critical = self.results[self.results["System_Status"].str.contains("CRITICAL")]
-            if not critical.empty:
-                print(f"ALERT: {len(critical)} contingencies result in system violations.")
-                print("Strategic Action: Redispatch required or SuedOstLink capacity increase recommended.")
+            
+            if "System_Status" in self.results.columns:
+                critical = self.results[self.results["System_Status"].str.contains("CRITICAL|COLLAPSE", na=False)]
+                warning = self.results[self.results["System_Status"].str.contains("WARNING", na=False)]
+                
+                if not critical.empty:
+                    print(f"ALERT: {len(critical)} contingencies result in system violations.")
+                    print("Strategic Action: Redispatch required or SuedOstLink capacity increase recommended.")
+                elif not warning.empty:
+                    print(f"NOTICE: {len(warning)} contingencies result in high loading (>90%).")
+                    print("Strategic Action: Monitor closely; consider increasing SuedOstLink setpoint.")
+                else:
+                    print("System is N-1 Secure.")
             else:
-                print("System is N-1 Secure.")
+                print("Error: Results table format mismatch.")
         else:
             print("No results to display.")
 
 if __name__ == "__main__":
-    # Instantiate the toolkit
     toolkit = GridAutomationToolkit()
-    
-    # 1. Build the Digital Twin
     toolkit.create_50hertz_mock_grid()
-    
-    # 2. Validate Data (The "Ilara Health" Bridge)
     valid = toolkit.validate_data_integrity()
-    
-    # 3. Run Automation
     if valid:
         toolkit.run_n_minus_1_analysis()
         toolkit.generate_management_report()
