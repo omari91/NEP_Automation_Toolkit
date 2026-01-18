@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  nep-toolkit:
+    build: .
+    container_name: nep_automation_toolkit
+    volumes:
+      - ./output:/app/output
+      - ./logs:/app/logs
+    environment:
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "8050:8050"
+    restart: unless-stopped
+    command: python grid_simulation_toolkit.py
+
+  # Optional: Dashboard service (uncomment if using grid_dashboard.py)
+  # dashboard:
+  #   build: .
+  #   container_name: nep_dashboard
+  #   volumes:
+  #     - ./output:/app/output
+  #   ports:
+  #     - "8051:8050"
+  #   restart: unless-stopped
+  #   command: python grid_dashboard.py
