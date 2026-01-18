@@ -60,3 +60,41 @@ The script will:
 
 ## License
 This project is open-source and available under the MIT License.
+
+
+## Docker Deployment
+
+The toolkit can be containerized for consistent deployment across environments.
+
+### Quick Start with Docker
+
+```bash
+# Build the Docker image
+docker build -t nep-toolkit .
+
+# Run the container
+docker run -v $(pwd)/output:/app/output -v $(pwd)/logs:/app/logs -p 8050:8050 nep-toolkit
+```
+
+### Using Docker Compose
+
+```bash
+# Start the toolkit
+docker-compose up
+
+# Run in detached mode
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop the container
+docker-compose down
+```
+
+### Docker Features
+
+- **Isolated environment**: All dependencies packaged within the container
+- **Volume mounts**: Output and log files accessible on host system
+- **Port exposure**: Dashboard accessible at `http://localhost:8050`
+- **Easy scaling**: Run multiple instances for parallel analysis
