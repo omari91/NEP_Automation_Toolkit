@@ -3,7 +3,7 @@
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue?logo=python&logoColor=white)
 ![Pandapower](https://img.shields.io/badge/pandapower-2.14%2B-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![50Hertz](https://img.shields.io/badge/target-50Hertz-red)
+![TSO](https://img.shields.io/badge/target-TSO-red)
 ![VDE](https://img.shields.io/badge/compliance-VDE--AR--N%204110-blue)
 ![Stars](https://img.shields.io/github/stars/omari91/NEP_Automation_Toolkit?style=social)
 
@@ -11,7 +11,7 @@
 
 
 ## Project overview
-This repository contains a Digital Twin Simulation Framework designed to demonstrate automated grid planning workflows relevant to the 50Hertz "From 60 to 100 by 2032" strategic mission.  
+This repository contains a Digital Twin Simulation Framework designed to demonstrate automated grid planning workflows relevant to a Transmission System Operator (TSO).  
 It serves as a technical proof-of-concept for the Network Planner role, showcasing how Python automation can streamline the massive computational requirements of the Netzentwicklungsplan (NEP).
 
 ## Strategic alignment

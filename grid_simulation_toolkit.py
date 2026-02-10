@@ -15,7 +15,7 @@ except ImportError:
 class GridAutomationToolkit:
     """
     A Python framework demonstrating the 'Modern Grid Architect' skillset 
-    required for the 50Hertz Network Planner role.
+    required for a Transmission System Operator (TSO) Network Planner role.
 
     Repository: https://github.com/omari91/NEP_Automation_Toolkit
     
@@ -32,11 +32,11 @@ class GridAutomationToolkit:
 
     def create_50hertz_mock_grid(self):
         """
-        Creates a simplified representation of the 50Hertz challenges.
+        Creates a simplified representation of common TSO planning challenges.
         CORRECTION: Uses Overhead Line parameters (OHL) instead of Cables
         to prevent massive charging currents over 200km distances.
         """
-        print("\n--- Initializing 50Hertz Target Grid Model (Mock) ---")
+        print("\n--- Initializing TSO Target Grid Model (Mock) ---")
         
         if not PANDAPOWER_AVAILABLE:
             self.net = "MockNetwork"

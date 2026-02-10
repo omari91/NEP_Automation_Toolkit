@@ -84,7 +84,7 @@ python grid_simulation_toolkit.py
 
 ### Priority Areas
 
-1. **Real Grid Data Integration**: Import actual 50Hertz network topology
+1. **Real Grid Data Integration**: Import actual TSO network topology
 2. **Advanced Contingency Analysis**: N-2, N-1-1 scenarios
 3. **Optimization**: Redispatch recommendations, optimal power flow
 4. **Renewable Integration**: Wind/solar forecast integration, curtailment analysis

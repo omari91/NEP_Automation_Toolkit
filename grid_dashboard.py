@@ -9,7 +9,7 @@ import warnings
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="50Hertz Digital Twin",
+    page_title="TSO Digital Twin",
     page_icon="⚡",
     layout="wide"
 )
@@ -202,8 +202,8 @@ def get_toolkit() -> GridAutomationToolkit:
     return GridAutomationToolkit()
 
 # --- DASHBOARD LAYOUT ---
-st.title("⚡ 50Hertz Grid Planning Digital Twin")
-st.markdown("**Automated N-1 Contingency Analysis & SuedOstLink Integration**")
+st.title("⚡ Transmission System Operator (TSO) Grid Planning Digital Twin")
+st.markdown("**Automated N-1 Contingency Analysis & HVDC Integration**")
 
 # Sidebar Controls
 st.sidebar.header("Simulation Parameters")

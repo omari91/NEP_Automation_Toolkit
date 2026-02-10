@@ -140,7 +140,14 @@ celerybeat.pid
 .venv
 env/
 venv/
+.venv/
 ENV/
+.env
+.env.*
+
+# Streamlit runtime files
+streamlit.log
+streamlit.pid
 env.bak/
 venv.bak/
 
