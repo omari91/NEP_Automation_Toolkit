@@ -29,7 +29,7 @@ with st.sidebar.expander("🚀 Power Electronics (STATCOM/HVDC)"):
 
 with st.sidebar.expander("🛠️ Electrical Design (Asset Specs)"):
     st.caption("On-Load Tap Changer (OLTC)")
-    trafo_tap = st.slider("Transformer Tap Position", -5, 5, 0)
+    trafo_tap = st.slider("Transformer Tap Position", -10, 10, 0)
     st.caption("380kV Thermal Limits")
     line_limit_ka = st.number_input("Max Current (kA)", 1.0, 3.0, 1.8)
 
