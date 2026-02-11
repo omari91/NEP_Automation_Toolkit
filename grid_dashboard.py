@@ -27,7 +27,7 @@ with st.sidebar.expander("🚨 Contingency Analysis (N-1)"):
     st.caption("Simulates a single-circuit failure on the 380kV backbone.")
 
 with st.sidebar.expander("🛠️ Advanced Asset Parameters"):
-    st.info("Technical specs for 50Hertz-standard 380kV assets.")
+    st.info("Technical specs for TSO-standard 380kV assets.")
     v_target = st.number_input("Target Voltage (pu)", 0.9, 1.1, 1.02)
     line_limit = st.number_input("Line Limit (kA)", 1.0, 3.0, 1.8)
     trafo_sn = st.number_input("Trafo Rating (MVA)", 100, 500, 160)
