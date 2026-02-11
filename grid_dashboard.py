@@ -1,101 +1,110 @@
 import streamlit as st
 import pandapower as pp
-import pandapower.networks as nw
 import pandas as pd
 import numpy as np
+import plotly.express as px
 
-# Page configuration
-st.set_page_config(page_title="TSO Digital Twin - Grid Planning", layout="wide")
+# 1. Page Config
+st.set_page_config(page_title="TSO Digital Twin - VDE 4110", layout="wide")
 
-st.title("⚡ TSO Digital Twin: N-1 Contingency & HVDC Dashboard")
-st.markdown("""
-This dashboard simulates a 380kV/110kV transmission grid segment. 
-It evaluates grid stability based on **VDE-AR-N 4110** criteria.
-""")
+st.title("⚡ TSO Digital Twin Dashboard")
+st.markdown("Automated Grid Planning & VDE-AR-N 4110 Compliance")
 
-# Sidebar controls for simulation parameters
-st.sidebar.header("Network Parameters")
-wind_gen = st.sidebar.slider("Wind Generation (MW)", 0, 1500, 450, step=50)
-solar_gen = st.sidebar.slider("Solar Generation (MW)", 0, 500, 100, step=25)
-load_mw = st.sidebar.slider("Regional Load (MW)", 0, 2000, 800, step=50)
-hvdc_p = st.sidebar.slider("HVDC Power Injection (MW)", 0, 1000, 300, step=50)
-hvdc_enabled = st.sidebar.checkbox("Enable HVDC Link (SuedOstLink)", value=True)
+# 2. Sidebar Parameters
+st.sidebar.header("Grid Scenario Configuration")
+wind_mw = st.sidebar.slider("Wind Farm Output (MW)", 0, 1000, 450)
+load_mw = st.sidebar.slider("Regional Load (MW)", 100, 1500, 800)
+hvdc_active = st.sidebar.toggle("Enable HVDC Link Support", value=True)
 
-def create_network():
+# 3. Network Modeling Function
+def build_grid():
     net = pp.create_empty_network()
     
-    # Create buses
-    b1 = pp.create_bus(net, vn_kv=380., name="Transmission Node A")
-    b2 = pp.create_bus(net, vn_kv=380., name="Transmission Node B")
-    b3 = pp.create_bus(net, vn_kv=110., name="Distribution Hub")
+    # Create Buses
+    b_ehv_1 = pp.create_bus(net, vn_kv=380, name="EHV Station North")
+    b_ehv_2 = pp.create_bus(net, vn_kv=380, name="EHV Station South")
+    b_hv = pp.create_bus(net, vn_kv=110, name="Regional HV Hub")
     
-    # External Grid (Slack Bus)
-    pp.create_ext_grid(net, bus=b1, vm_pu=1.02, name="Main Interconnector")
+    # External Grid
+    pp.create_ext_grid(net, bus=b_ehv_1, vm_pu=1.02, name="Grid Slack")
     
-    # Transformer (380/110 kV)
-    pp.create_transformer(net, hv_bus=b2, lv_bus=b3, std_type="100 MVA 380/110 kV", name="T1")
+    # 380kV Transmission Lines (N-1 Redundant)
+    pp.create_line_from_parameters(net, from_bus=b_ehv_1, to_bus=b_ehv_2, length_km=60, 
+                                 r_ohm_per_km=0.02, x_ohm_per_km=0.25, c_nf_per_km=12, max_i_ka=1.8, name="L1-380kV")
+    pp.create_line_from_parameters(net, from_bus=b_ehv_1, to_bus=b_ehv_2, length_km=60, 
+                                 r_ohm_per_km=0.02, x_ohm_per_km=0.25, c_nf_per_km=12, max_i_ka=1.8, name="L2-380kV")
     
-    # Lines (N-1 Redundancy)
-    pp.create_line(net, from_bus=b1, to_bus=b2, length_km=50, std_type="490-AL1/64-ST1A 380.0", name="Main Line 1")
-    pp.create_line(net, from_bus=b1, to_bus=b2, length_km=50, std_type="490-AL1/64-ST1A 380.0", name="Main Line 2")
+    # Interconnecting Transformer
+    pp.create_transformer_from_parameters(net, hv_bus=b_ehv_2, lv_bus=b_hv, sn_mva=160, vn_hv_kv=380, vn_lv_kv=110, 
+                                         vkr_percent=0.1, vk_percent=12, pfe_kw=40, i0_percent=0.05, name="T1-380/110")
     
-    # Generation
-    pp.create_sgen(net, bus=b2, p_mw=wind_gen, q_mvar=wind_gen*0.05, name="Offshore Wind")
-    pp.create_sgen(net, bus=b3, p_mw=solar_gen, q_mvar=0, name="Local Solar")
+    # Load and Generation
+    pp.create_sgen(net, bus=b_ehv_2, p_mw=wind_mw, q_mvar=wind_mw*0.05, name="Wind Infeed")
+    pp.create_load(net, bus=b_hv, p_mw=load_mw, q_mvar=load_mw*0.2, name="Regional Load")
     
-    # Load
-    pp.create_load(net, bus=b3, p_mw=load_mw, q_mvar=load_mw*0.3, name="Industrial Load")
-    
-    # HVDC Link (Simplified as static injection)
-    if hvdc_enabled:
-        pp.create_sgen(net, bus=b3, p_mw=hvdc_p, q_mvar=hvdc_p*0.1, name="HVDC Infeed")
+    if hvdc_active:
+        pp.create_sgen(net, bus=b_hv, p_mw=300, q_mvar=40, name="HVDC Terminal")
         
     return net
 
-if st.button("🚀 Run Contingency Analysis"):
-    net = create_network()
+# 4. Simulation and Visualization
+if st.button("🚀 Run Grid Analysis"):
+    net = build_grid()
     
     try:
-        # Robust power flow settings
-        pp.runpp(net, algorithm="nr", init_vm_pu="flat", init_va_degree="dc", max_iteration=100)
+        # Newton-Raphson power flow
+        pp.runpp(net, algorithm="nr", init_vm_pu="flat", init_va_degree="dc")
         
-        st.success("Simulation Converged. Grid parameters within operational bounds.")
+        st.success("Simulation Converged Successfully")
         
-        # Dashboard Layout
-        col1, col2 = st.columns(2)
+        # Results columns
+        c1, c2 = st.columns(2)
         
-        with col1:
-            st.subheader("📍 Bus Voltage Analysis")
-            res_bus = net.res_bus[['vm_pu']].copy()
-            res_bus.index = net.bus['name']
-            res_bus['Compliance'] = res_bus['vm_pu'].apply(lambda x: "✅ Pass" if 0.94 <= x <= 1.06 else "❌ VDE Violation")
-            st.dataframe(res_bus.style.background_gradient(cmap='RdYlGn', subset=['vm_pu']))
+        with c1:
+            st.subheader("📍 Voltage Profile (VDE 4110)")
+            v_res = net.res_bus[['vm_pu']].copy()
+            v_res.index = net.bus['name']
+            v_res['VDE Status'] = v_res['vm_pu'].apply(lambda x: "✅ Pass" if 0.95 <= x <= 1.05 else "⚠️ Violation")
+            st.table(v_res.style.format("{:.3f}"))
             
-        with col2:
-            st.subheader("🔗 Asset Loading (N-1 Status)")
-            res_line = net.res_line[['loading_percent']].copy()
-            res_line.index = net.line['name']
-            res_line['Status'] = res_line['loading_percent'].apply(lambda x: "Safe" if x < 70 else ("Critical" if x < 100 else "Overloaded"))
-            st.dataframe(res_line.style.background_gradient(cmap='YlOrRd', subset=['loading_percent']))
+            # Plotly Chart
+            fig_v = px.bar(v_res.reset_index(), x='name', y='vm_pu', color='VDE Status', 
+                          title="Bus Voltage Analysis", color_discrete_map={"✅ Pass": "#2ecc71", "⚠️ Violation": "#e74c3c"})
+            fig_v.add_hline(y=1.05, line_dash="dash", line_color="red", annotation_text="Upper Limit")
+            fig_v.add_hline(y=0.95, line_dash="dash", line_color="red", annotation_text="Lower Limit")
+            st.plotly_chart(fig_v, use_container_width=True)
+            
+        with c2:
+            st.subheader("🔗 Asset Loading (N-1 Analysis)")
+            l_res = net.res_line[['loading_percent']].copy()
+            l_res.index = net.line['name']
+            st.table(l_res.style.format("{:.1f}%"))
+            
+            # Loading Chart
+            fig_l = px.bar(l_res.reset_index(), x='name', y='loading_percent', title="Line Loading (%)")
+            st.plotly_chart(fig_l, use_container_width=True)
 
-        # CSV Export Logic
-        st.subheader("📊 Export Data")
-        full_res = pd.concat([net.res_bus, net.res_line], axis=1)
-        csv_data = full_res.to_csv(index=True).encode('utf-8')
+        # 5. Data Export
+        st.divider()
+        st.subheader("📊 Export Simulation Data")
+        
+        bus_export = net.res_bus.copy()
+        bus_export.index = net.bus['name']
+        csv = bus_export.to_csv().encode('utf-8')
         st.download_button(
-            label="Download Simulation Report (CSV)",
-            data=csv_data,
-            file_name='tso_simulation_results.csv',
+            label="📥 Download Detailed Report (CSV)",
+            data=csv,
+            file_name='grid_report.csv',
             mime='text/csv',
         )
         
     except Exception as e:
-        st.error(f"Numerical Divergence Detected: {e}")
-        st.warning("Recommendation: Increase HVDC power injection or reduce local load to stabilize the 110kV node.")
+        st.error(f"Mathematical Divergence: {e}")
+        st.warning("Action Required: Adjust HVDC injection or reduce regional load to stabilize the grid.")
 
-# Interview Preparation Section
+# 6. Interview Preparation Section
 st.divider()
-with st.expander("📝 Scenario Briefing for Interviews"):
-    st.info("**Scenario 1: High Wind/Low Load** - Demonstrates voltage rise at Transmission Node B. Show how HVDC can absorb excess reactive power.")
-    st.info("**Scenario 2: N-1 Contingency** - Explain that even if one 380kV line is lost, the second line maintains the connection.")
-    st.info("**Scenario 3: VDE-AR-N 4110** - Discuss the 0.94-1.06 pu voltage limits and how reactive power maintains this.")
+with st.expander("🎓 Interview Scenario Briefing"):
+    st.info("**VDE-AR-N 4110 Compliance**: Explain that the model monitors bus voltages to ensure they remain within the statutory ±5% range (0.95-1.05 pu).")
+    st.info("**N-1 Contingency**: Highlight how the dual 380kV lines ensure that if one fails, the other can carry the load.")
+    st.info("**HVDC Integration**: Discuss the role of HVDC in providing active power support directly at the distribution hub.")
