@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 # --- 1. PAGE SETUP & STYLING ---
 st.set_page_config(page_title="TSO Grid Planning Digital Twin", layout="wide")
 
-st.title("⚡ 50Hertz Network Planning: Operational Security Dashboard")
+st.title("⚡ TSO Network Planning: Operational Security Dashboard")
 st.markdown("""
 **System Scope:** 380kV/110kV EHV-HV Coupling | **Regulatory Framework:** VDE-AR-N 4110 & 4120
 *This tool automates N-1 security studies and evaluates the integration of Power Electronic systems (HVDC & STATCOM).*
@@ -55,12 +55,28 @@ def build_50hertz_grid(is_n_1=False):
     pp.create_line_from_parameters(net, b_north, b_south, 60, name="Line L1-380kV", in_service=not is_n_1, **line_cfg)
     pp.create_line_from_parameters(net, b_north, b_south, 60, name="Line L2-380kV", **line_cfg)
     
-    # Transformer with Tap Changer Control
-    # tap_step_percent=1.25 is typical for German TSO transformers
-    pp.create_transformer_from_parameters(net, hv_bus=b_south, lv_bus=b_regional, sn_mva=350, 
-                                          vn_hv_kv=380, vn_lv_kv=110, vk_percent=12, vkr_percent=0.1, 
-                                          tap_side="hv", tap_pos=trafo_tap, tap_step_percent=1.25, name="T1-380/110")
-    
+    # 380/110kV Transformer with OLTC (On-Load Tap Changer)
+    # We must define neutral, min, and max positions for the solver to validate the tap_pos
+    pp.create_transformer_from_parameters(
+        net, 
+        hv_bus=b_south, 
+        lv_bus=b_regional, 
+        sn_mva=350, 
+        vn_hv_kv=380, 
+        vn_lv_kv=110, 
+        vk_percent=12, 
+        vkr_percent=0.1, 
+        pfe_kw=40, 
+        i0_percent=0.05,
+        shift_degree=0,
+        tap_side="hv", 
+        tap_neutral=0,      # The 'center' position
+        tap_min=-10,        # Standard German TSO range
+        tap_max=10,         # Standard German TSO range
+        tap_step_percent=1.25, 
+        tap_pos=trafo_tap,  # This now has a valid range to live in
+        name="T1-380/110"
+    )
     # Generation & Demand
     pp.create_gen(net, bus=b_north, p_mw=wind_mw, vm_pu=1.02, name="Offshore Wind Farm")
     pp.create_load(net, bus=b_regional, p_mw=load_mw, q_mvar=load_mw*0.3, name="Regional Load Cluster")
