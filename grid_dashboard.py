@@ -158,5 +158,5 @@ with st.expander("🎓 Expert Briefing: Grid Integration of Power Electronics"):
     - **STATCOM Role:** Provides rapid, stepless reactive power compensation to stabilize voltage during transients and high load.
     - **HVDC VSC:** Models a Voltage Sourced Converter capable of independent Active (P) and Reactive (Q) power control.
     - **Tap Changer:** Simulates the 'On-Load Tap Changer' (OLTC) on the 380kV side to regulate 110kV hub voltage.
-    - **Automation:** This dashboard demonstrates the **Standardization and Automation** of grid studies mentioned in the 50Hertz job description.
+    - **Automation:** This dashboard demonstrates the **Standardization and Automation** of grid studies.
     """)
