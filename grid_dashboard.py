@@ -146,14 +146,14 @@ if st.button("🚀 Execute Grid Security Analysis"):
 
             # Data Export
             csv = net.res_bus.to_csv().encode('utf-8')
-            st.download_button("📥 Export Simulation Data", csv, "50hertz_study.csv", "text/csv")
+            st.download_button("📥 Export Simulation Data", csv, "tso_study.csv", "text/csv")
 
         except Exception as e:
             status.update(label="Solver Diverged!", state="error")
             st.error(f"**Mathematical Divergence:** The current grid configuration is physically unstable. {e}")
 
 # --- 6. TECHNICAL BRIEFING ---
-with st.expander("🎓 Expert Briefing: Grid Integration of Power Electronics"):
+with st.expander("Briefing Notes: Grid Integration of Power Electronics"):
     st.markdown("""
     - **STATCOM Role:** Provides rapid, stepless reactive power compensation to stabilize voltage during transients and high load.
     - **HVDC VSC:** Models a Voltage Sourced Converter capable of independent Active (P) and Reactive (Q) power control.
