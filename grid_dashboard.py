@@ -5,6 +5,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
+
 # -----------------------------
 # 1) PAGE SETUP
 # -----------------------------
@@ -149,7 +150,7 @@ def pv_curve_screen(net_base: pp.pandapowerNet, load_bus_name: str, steps: int, 
     PV curve by scaling the main load and solving power flow at each step.
     We track the minimum bus voltage and the load-bus voltage (as an indicator).
     """
-    net = net_base.deepcopy()
+    net = copy.deepcopy(net_base)
     load_idx = net.load.index[0]  # single load in this toy grid
     load_bus = net.load.at[load_idx, "bus"]
 
@@ -181,7 +182,7 @@ def voltage_sensitivity_proxy(net_base: pp.pandapowerNet) -> dict:
     eps_q = max(5.0, 0.01 * (load_mw * load_q_factor * 1000)) / 1000  # MVAr approx -> keep consistent
 
     def solve_with_delta(dp_mw=0.0, dq_mvar=0.0):
-        net = net_base.deepcopy()
+        net = copy.deepcopy(net_base)
         li = net.load.index[0]
         b = net.load.at[li, "bus"]
         net.load.at[li, "p_mw"] = load_mw + dp_mw
