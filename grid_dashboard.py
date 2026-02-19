@@ -1,10 +1,48 @@
-import streamlit as st
-import pandapower as pp
-import pandas as pd
+import copy
+from pathlib import Path
+
 import numpy as np
+import pandas as pd
+import pandapower as pp
 import plotly.express as px
 import plotly.graph_objects as go
-import copy
+import streamlit as st
+
+from stransient_loader import (
+    build_net_from_pypsa_export,
+    build_net_from_stransient,
+    summarize_pypsa_export,
+)
+
+
+_SCRIPT_PATH = Path(__file__).resolve()
+_PROJECT_ROOT = (
+    _SCRIPT_PATH.parent.parent
+    if _SCRIPT_PATH.parent.name == "__pycache__"
+    else _SCRIPT_PATH.parent
+)
+DEFAULT_STRANSIENT_PATH = _PROJECT_ROOT.joinpath(
+    "pypsa-de",
+    "results",
+    "20260114_limit_cross_border_flows",
+    "KN2045_Mix",
+    "stransient",
+)
+
+_LOCAL_PYPSA_EXPORT_PATH = Path(
+    r"C:\Users\HP\pypsa-de\results\20260114_limit_cross_border_flows\KN2045_Mix\exports"
+)
+DEFAULT_PYPSA_EXPORT_PATH = (
+    _LOCAL_PYPSA_EXPORT_PATH
+    if _LOCAL_PYPSA_EXPORT_PATH.exists()
+    else _PROJECT_ROOT.joinpath(
+        "pypsa-de",
+        "results",
+        "20260114_limit_cross_border_flows",
+        "KN2045_Mix",
+        "exports",
+    )
+)
 
 
 # -----------------------------
@@ -26,15 +64,162 @@ This dashboard automates **N-1 security** (steady-state) and adds **stability sc
 # -----------------------------
 st.sidebar.header("🕹️ Study Controls")
 
+DATA_SOURCE_OPTIONS = [
+    "Template grid (built-in demo)",
+    "PyPSA-DE STRANSIENT export",
+    "PyPSA-DE export folder",
+]
+with st.sidebar.expander("📂 Data Source", expanded=True):
+    data_source = st.radio("Network data source", DATA_SOURCE_OPTIONS, index=0)
+    use_stransient_data = data_source == DATA_SOURCE_OPTIONS[1]
+    use_pypsa_export_data = data_source == DATA_SOURCE_OPTIONS[2]
+
+    _cached_stransient_path = st.session_state.get("stransient_path_input", str(DEFAULT_STRANSIENT_PATH))
+    if use_stransient_data:
+        stransient_path_input = st.text_input(
+            "STRANSIENT export folder",
+            value=_cached_stransient_path,
+            help="Folder containing stransient_bus.csv, stransient_branch.csv, etc.",
+            key="stransient_path_input",
+        )
+    else:
+        stransient_path_input = _cached_stransient_path
+    stransient_path = Path(stransient_path_input).expanduser()
+    if use_stransient_data:
+        st.caption(f"Working folder: {stransient_path}")
+
+    bus_options = []
+    load_options = []
+    stransient_error = ""
+    stransient_ready = False
+
+    if stransient_path.is_dir():
+        try:
+            bus_df = pd.read_csv(stransient_path / "stransient_bus.csv")
+            load_df = pd.read_csv(stransient_path / "stransient_load.csv")
+            bus_options = bus_df["bus_id"].astype(str).tolist()
+            load_options = load_df["load_id"].astype(str).tolist()
+            if bus_options and load_options:
+                stransient_ready = True
+            else:
+                stransient_error = "Exports found but missing bus/load entries."
+        except Exception as exc:  # pragma: no cover
+            stransient_error = f"Failed to read STRANSIENT exports: {exc}"
+    elif use_stransient_data:
+        stransient_error = f"{stransient_path} does not exist."
+
+    if use_stransient_data and not stransient_ready:
+        st.error(stransient_error or "Provide a valid STRANSIENT export folder.")
+
+    slack_bus_id = None
+    load_choice = None
+    if use_stransient_data and stransient_ready:
+        slack_bus_id = st.selectbox("Slack bus (ext. grid)", bus_options, index=0)
+        load_choice = st.selectbox("Load for PV curve", load_options, index=0)
+        st.caption(f"{len(bus_options)} buses · {len(load_options)} loads available")
+
+    _cached_pypsa_path = st.session_state.get("pypsa_export_path_input", str(DEFAULT_PYPSA_EXPORT_PATH))
+    if use_pypsa_export_data:
+        pypsa_export_path_input = st.text_input(
+            "PyPSA export folder",
+            value=_cached_pypsa_path,
+            help="Folder containing buses.csv, lines.csv, generators.csv, loads.csv (full PyPSA export)",
+            key="pypsa_export_path_input",
+        )
+    else:
+        pypsa_export_path_input = _cached_pypsa_path
+    pypsa_export_path = Path(pypsa_export_path_input).expanduser()
+    if use_pypsa_export_data:
+        st.caption(f"Working folder: {pypsa_export_path}")
+
+    pypsa_export_error = ""
+    pypsa_export_ready = False
+    pypsa_bus_count = 0
+    pypsa_load_count = 0
+    pypsa_default_slack = ""
+    pypsa_default_load = ""
+
+    if use_pypsa_export_data:
+        if pypsa_export_path.is_dir():
+            try:
+                summary = summarize_pypsa_export(pypsa_export_path)
+                pypsa_bus_count = summary.get("bus_count", 0) or 0
+                pypsa_load_count = summary.get("load_count", 0) or 0
+                pypsa_default_slack = summary.get("default_slack") or ""
+                pypsa_default_load = summary.get("default_load") or ""
+                pypsa_export_ready = True
+            except Exception as exc:  # pragma: no cover
+                pypsa_export_error = f"Failed to read PyPSA export: {exc}"
+        else:
+            pypsa_export_error = f"{pypsa_export_path} does not exist."
+
+    if use_pypsa_export_data:
+        if pypsa_export_ready:
+            st.caption(f"{pypsa_bus_count} buses · {pypsa_load_count} loads available")
+        else:
+            st.error(pypsa_export_error or "Provide a valid PyPSA export folder.")
+
+        slack_default = st.session_state.get("pypsa_slack_bus", pypsa_default_slack or "")
+        slack_bus_id = st.text_input(
+            "Slack bus (ext. grid)",
+            value=slack_default,
+            help="Bus name from buses.csv that should act as the slack/source bus.",
+            key="pypsa_slack_bus",
+        )
+        load_default = st.session_state.get("pypsa_load_choice", pypsa_default_load or "")
+        load_choice = st.text_input(
+            "Load for PV curve",
+            value=load_default,
+            help="Load name from loads.csv; used for the PV curve/loadability plot.",
+            key="pypsa_load_choice",
+        )
+
 with st.sidebar.expander("🌍 Scenario Configuration", expanded=True):
-    wind_mw = st.slider("Offshore Wind Infeed (MW)", 0, 1500, 850)
-    load_mw = st.slider("Regional HV Demand (MW)", 500, 2500, 1400)
-    load_q_factor = st.slider("Load Q/P factor", 0.05, 0.60, 0.20, 0.01)
+    wind_mw = st.slider(
+        "Offshore Wind Infeed (MW)",
+        0,
+        1500,
+        1200,
+        disabled=use_stransient_data or use_pypsa_export_data,
+    )
+    load_mw = st.slider(
+        "Regional HV Demand (MW)",
+        500,
+        2500,
+        2200,
+        disabled=use_stransient_data or use_pypsa_export_data,
+    )
+    load_q_factor = st.slider(
+        "Load Q/P factor",
+        0.05,
+        0.60,
+        0.45,
+        0.01,
+        disabled=use_stransient_data or use_pypsa_export_data,
+    )
 
 with st.sidebar.expander("🚀 Power Electronics (STATCOM/HVDC)"):
-    hvdc_p = st.slider("HVDC P (MW)", 0, 1000, 600)
-    hvdc_q = st.slider("HVDC Q support (MVAr)", -300, 300, 50)
-    statcom_q = st.slider("STATCOM Q support (MVAr)", -300, 300, 0)
+    hvdc_p = st.slider(
+        "HVDC P (MW)",
+        0,
+        1000,
+        800,
+        disabled=use_stransient_data or use_pypsa_export_data,
+    )
+    hvdc_q = st.slider(
+        "HVDC Q support (MVAr)",
+        -300,
+        300,
+        150,
+        disabled=use_stransient_data or use_pypsa_export_data,
+    )
+    statcom_q = st.slider(
+        "STATCOM Q support (MVAr)",
+        -300,
+        300,
+        60,
+        disabled=use_stransient_data or use_pypsa_export_data,
+    )
     hvdc_enabled = st.toggle("Enable HVDC link", value=True)
     ffr_enabled = st.toggle("Enable HVDC FFR (synthetic inertia)", value=True)
 
@@ -42,12 +227,29 @@ with st.sidebar.expander("🛠️ Asset Specs / Limits"):
     st.caption("Transformer OLTC")
     trafo_tap = st.slider("Tap position", -10, 10, 0)
     st.caption("380kV Thermal Limits")
-    line_limit_ka = st.number_input("Max current (kA)", 1.0, 5.0, 2.5)
+    line_limit_ka = st.number_input(
+        "Max current (kA)",
+        1.0,
+        5.0,
+        4.0,
+        disabled=use_stransient_data or use_pypsa_export_data,
+    )
 
 with st.sidebar.expander("🚨 Security Criteria (N-1)"):
     trip_line = st.toggle("Trip L1-380kV Backbone (N-1)", value=False)
     st.caption("N-1: system must remain within limits after one credible outage.")
 
+
+if use_stransient_data or use_pypsa_export_data:
+    wind_mw = 0.0
+    load_mw = 0.0
+    load_q_factor = 0.0
+    hvdc_p = 0
+    hvdc_q = 0
+    statcom_q = 0
+    hvdc_enabled = False
+    ffr_enabled = False
+    trip_line = False
 with st.sidebar.expander("📉 Dynamic Screening (illustrative)"):
     fault_bus_sel = st.selectbox(
         "Three-phase fault location",
@@ -64,7 +266,7 @@ with st.sidebar.expander("🧪 Voltage Stability PV Curve"):
 # -----------------------------
 # 3) GRID MODEL
 # -----------------------------
-def build_grid(is_n_1: bool) -> pp.pandapowerNet:
+def build_template_grid(is_n_1: bool) -> pp.pandapowerNet:
     net = pp.create_empty_network()
 
     # Buses
@@ -105,13 +307,22 @@ def build_grid(is_n_1: bool) -> pp.pandapowerNet:
         # pandapower shunt uses q_mvar injected (negative means capacitive depending on convention)
         pp.create_shunt(net, bus=b_regional, q_mvar=-statcom_q, name="STATCOM Unit")
 
+    net.load["load_id"] = net.load["name"]
+    net.sgen["gen_id"] = net.sgen["name"]
+
     return net
 
 
 # -----------------------------
 # 4) DYNAMIC SCREENING (illustrative)
 # -----------------------------
-def simulate_dynamics(duration_ms: int, h_val: float, ffr_on: bool) -> pd.DataFrame:
+def simulate_dynamics(
+    duration_ms: int,
+    h_val: float,
+    ffr_on: bool,
+    generation_mw: float,
+    load_mw: float,
+) -> pd.DataFrame:
     """
     Screening-only. Purpose: show method + interpretability.
     Full EMT / RMS dynamic validation should be done in PSCAD / PowerFactory DSL models.
@@ -121,7 +332,7 @@ def simulate_dynamics(duration_ms: int, h_val: float, ffr_on: bool) -> pd.DataFr
     h_eff = h_val + (1.5 if ffr_on else 0.0)
 
     # crude imbalance proxy (MW -> pu)
-    p_accel = (wind_mw + (hvdc_p if hvdc_enabled else 0) - load_mw) / 1000.0
+    p_accel = (generation_mw - load_mw) / 1000.0
     rocof = f_nom * (p_accel) / (2 * max(h_eff, 0.1))
 
     # frequency response with damping
@@ -146,21 +357,27 @@ def estimate_cct_ms(h_val: float, ffr_on: bool) -> float:
 # -----------------------------
 # 5) VOLTAGE STABILITY (PV CURVE)
 # -----------------------------
-def pv_curve_screen(net_base: pp.pandapowerNet, load_bus_name: str, steps: int, max_scale: float) -> pd.DataFrame:
+def pv_curve_screen(
+    net_base: pp.pandapowerNet,
+    load_idx: int,
+    base_p_mw: float,
+    base_q_mvar: float,
+    steps: int,
+    max_scale: float,
+) -> pd.DataFrame:
     """
     PV curve by scaling the main load and solving power flow at each step.
     We track the minimum bus voltage and the load-bus voltage (as an indicator).
     """
     net = copy.deepcopy(net_base)
-    load_idx = net.load.index[0]  # single load in this toy grid
     load_bus = net.load.at[load_idx, "bus"]
 
     records = []
     scales = np.linspace(1.0, max_scale, steps)
 
     for s in scales:
-        net.load.at[load_idx, "p_mw"] = load_mw * s
-        net.load.at[load_idx, "q_mvar"] = (load_mw * load_q_factor) * s
+        net.load.at[load_idx, "p_mw"] = base_p_mw * s
+        net.load.at[load_idx, "q_mvar"] = base_q_mvar * s
 
         try:
             pp.runpp(net, enforce_q_lims=True, calculate_voltage_angles=True, init="auto")
@@ -209,25 +426,95 @@ def voltage_sensitivity_proxy(net_base: pp.pandapowerNet) -> dict:
 if st.button("🚀 Execute Security + Stability Analysis"):
     with st.status("Solving N-1 power flow + stability screening…", expanded=True) as status:
         try:
-            net0 = build_grid(is_n_1=trip_line)
+            net0 = None
+            load_idx = None
+            load_base_p = 0.0
+            load_base_q = 0.0
+            total_generation = 0.0
+            total_load = 0.0
+            fallback_notice = ""
+            data_source_label = DATA_SOURCE_OPTIONS[0]
+
+            import_data_ready = False
+            if use_pypsa_export_data and pypsa_export_ready:
+                try:
+                    net0 = build_net_from_pypsa_export(
+                        pypsa_export_path, slack_bus_id=slack_bus_id
+                    )
+                    data_source_label = DATA_SOURCE_OPTIONS[2]
+                    import_data_ready = True
+                except Exception as exc:  # pragma: no cover
+                    fallback_notice = f"PyPSA export import failed: {exc}"
+                    net0 = None
+            elif use_stransient_data and stransient_ready:
+                try:
+                    net0 = build_net_from_stransient(
+                        stransient_path, slack_bus_id=slack_bus_id
+                    )
+                    data_source_label = DATA_SOURCE_OPTIONS[1]
+                    import_data_ready = True
+                except Exception as exc:  # pragma: no cover
+                    fallback_notice = f"STRANSIENT import failed: {exc}"
+                    net0 = None
+
+            if net0 is None:
+                net0 = build_template_grid(is_n_1=trip_line)
+                load_idx = net0.load.index[0]
+                load_base_p = load_mw
+                load_base_q = load_mw * load_q_factor
+                total_generation = float(wind_mw + (hvdc_p if hvdc_enabled else 0))
+                total_load = float(load_mw)
+            else:
+                if import_data_ready:
+                    if load_choice:
+                        load_mask = net0.load["load_id"] == load_choice
+                    else:
+                        load_mask = pd.Series(False, index=net0.load.index)
+                    if load_mask.any():
+                        load_idx = net0.load[load_mask].index[0]
+                    else:
+                        load_idx = net0.load.index[0]
+                else:
+                    load_idx = net0.load.index[0]
+
+                load_base_p = float(net0.load.at[load_idx, "p_mw"])
+                load_base_q = float(net0.load.at[load_idx, "q_mvar"])
+                total_generation = float(net0.sgen["p_mw"].sum())
+                total_load = float(net0.load["p_mw"].sum())
+
+            if total_generation == 0:
+                total_generation = total_load
+
             pp.runpp(net0, enforce_q_lims=True, calculate_voltage_angles=True, init="auto")
 
-            # Core KPIs
+            if fallback_notice:
+                st.warning(fallback_notice + " Running the template grid instead.")
+
             max_load_pct = float(net0.res_line.loading_percent.max())
             v_min = float(net0.res_bus.vm_pu.min())
             cct = estimate_cct_ms(system_inertia, ffr_enabled)
 
-            # Dynamic screening traces
-            dyn_res = simulate_dynamics(fault_duration, system_inertia, ffr_enabled)
+            dyn_res = simulate_dynamics(
+                fault_duration,
+                system_inertia,
+                ffr_enabled,
+                total_generation,
+                total_load,
+            )
             f_nadir = float(dyn_res["Frequency (Hz)"].min())
 
-            # Voltage stability screening
-            pv_df = pv_curve_screen(net0, "Regional Hub (Demand)", pv_steps, pv_max_scale)
+            pv_df = pv_curve_screen(
+                net0,
+                load_idx,
+                load_base_p,
+                load_base_q,
+                pv_steps,
+                pv_max_scale,
+            )
             sens = voltage_sensitivity_proxy(net0)
 
             status.update(label="Complete: Security + Stability Screening Generated", state="complete", expanded=False)
 
-            # ---- Metrics row
             m1, m2, m3, m4, m5 = st.columns(5)
             m1.metric("Max line loading", f"{max_load_pct:.1f}%")
             m2.metric("Min bus voltage", f"{v_min:.3f} pu")
@@ -235,7 +522,6 @@ if st.button("🚀 Execute Security + Stability Analysis"):
             m4.metric("Frequency nadir", f"{f_nadir:.2f} Hz")
             m5.metric("dV/dQ (proxy)", f"{sens['dVdQ_pu_per_MVAr']:.4f} pu/MVAr")
 
-            # ---- Charts
             c1, c2 = st.columns(2)
 
             with c1:
@@ -263,13 +549,11 @@ if st.button("🚀 Execute Security + Stability Analysis"):
                 fig_pv.update_layout(xaxis_title="Load (MW)", yaxis_title="Voltage (pu)", title="PV curve (screening)")
                 st.plotly_chart(fig_pv, use_container_width=True)
 
-                # margin estimate
                 converged = pv_df[pv_df["Converged"] == True].dropna()
                 if len(converged) > 0:
-                    # define margin as last point before voltage floor (or last converged)
                     safe = converged[converged["V_load_bus (pu)"] >= pv_voltage_floor]
                     p_safe = float(safe["P_load (MW)"].max()) if len(safe) else float(converged["P_load (MW)"].min())
-                    margin_mw = max(0.0, p_safe - load_mw)
+                    margin_mw = max(0.0, p_safe - load_base_p)
                     st.caption(f"Loadability margin (screening): **~{margin_mw:.0f} MW** above current load before reaching {pv_voltage_floor:.2f} pu.")
                 else:
                     st.caption("PV curve did not converge — indicates severe condition under selected settings.")
@@ -286,8 +570,8 @@ if st.button("🚀 Execute Security + Stability Analysis"):
 
             st.divider()
             st.subheader("🧭 Planning / Engineering Interpretation")
+            st.caption(f"Data source: {data_source_label}")
 
-            # Decision logic
             if fault_duration > cct:
                 st.error(f"**Transient stability risk (screening):** clearing time {fault_duration} ms > CCT {cct:.0f} ms.")
                 st.info("Mitigation levers: faster clearing, HVDC FFR / synthetic inertia, synchronous condenser, protection coordination.")
@@ -300,7 +584,6 @@ if st.button("🚀 Execute Security + Stability Analysis"):
             else:
                 st.success("**Screening result:** within typical steady-state limits; stability indicators available below.")
 
-            # Sensitivity interpretation
             st.caption("Stability indicators (screening):")
             st.write({
                 "V_load_base (pu)": round(sens["V_load_base"], 4),
@@ -315,7 +598,7 @@ if st.button("🚀 Execute Security + Stability Analysis"):
             st.info("Try reducing load, increasing reactive support, or disabling N-1 trip to isolate the cause.")
 
 
-with st.expander("Briefing notes (what to say in interviews)"):
+with st.expander("Briefing notes – Methodology & Interpretation", expanded=False):
     st.markdown("""
 - **N-1 security**: steady-state constraint checking (thermal + voltage) under credible outage.  
 - **Voltage stability screening**: PV curve by load scaling. Interpretable as “how much headroom until voltage collapses.”  

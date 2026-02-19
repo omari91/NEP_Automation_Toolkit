@@ -1,0 +1,3 @@
+bus,p_max_mw,q_max_mvar,gen_id
+NorthHub,500,120,NorthGen
+SouthHub,0,0,SouthSgen

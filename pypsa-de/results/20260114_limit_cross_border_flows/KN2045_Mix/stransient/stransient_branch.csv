@@ -1,0 +1,3 @@
+bus0,bus1,length,r,x,c_nf_per_km,i_nom,branch_id
+NorthHub,SouthHub,50,0.015,0.2,15,2,North-South
+SouthHub,RegionalHub,10,0.05,0.3,20,1,South-Regional
