@@ -315,7 +315,7 @@ if st.button("🚀 Execute Security + Stability Analysis"):
             st.info("Try reducing load, increasing reactive support, or disabling N-1 trip to isolate the cause.")
 
 
-with st.expander("Briefing notes (what to say in interviews)"):
+with st.expander("Briefing notes"):
     st.markdown("""
 - **N-1 security**: steady-state constraint checking (thermal + voltage) under credible outage.  
 - **Voltage stability screening**: PV curve by load scaling. Interpretable as “how much headroom until voltage collapses.”  
